@@ -77,8 +77,9 @@ def post_user_games():
         try: 
             post_open_game_thread(game)
         except praw.exceptions.APIException as e:
-            print('APIException', e)
-            break
+            if not 'ALREADY_SUB' in str(e):
+                print('APIException', str(e))
+                break
 
         already_posted = already_posted + (number,)
         mc.set(already_posted_key, already_posted)
