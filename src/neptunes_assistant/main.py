@@ -1,5 +1,7 @@
 import os
 import bmemcached    
+import praw
+
 
 username = os.environ['REDDIT_USERNAME']
 password = os.environ['REDDIT_PASSWORD']
