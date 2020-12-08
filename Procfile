@@ -1,1 +1,1 @@
-run: env PYTHONPATH=$PYTHONPATH:$PWD/src python ./bin/run.py
+run: python ./bin/run.py

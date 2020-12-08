@@ -1,6 +1,6 @@
 import requests
 import os
-import bmemcached    
+import bmemcached
 import praw
 import html
 from pprint import pprint
@@ -8,12 +8,14 @@ from pprint import pprint
 BASE_DOMAIN = 'https://np.ironhelmet.com'
 url = BASE_DOMAIN + '/mrequest/open_games'
 data = {'type': 'open_games'}
-already_posted_key = 'POSTED'
+
+# cache names
+ALREADY_POSTED = 'POSTED'
+OPEN_THREADS = 'OPEN_THREADS'
 
 # flair IDs
-
-open_id = '40ac6e5e-4701-11e8-bd80-0e491115009a'
-closed_id = '109d87bc-4674-11e8-a30b-0eed8597e7ae'
+OPEN_ID = '40ac6e5e-4701-11e8-bd80-0e491115009a'
+FULL_ID = '109d87bc-4674-11e8-a30b-0eed8597e7ae'
 
 def get_npsub():
     username = os.environ['REDDIT_USERNAME']
@@ -28,48 +30,67 @@ def get_npsub():
     print('Me:', reddit.user.me())
 
     npsub = reddit.subreddit('neptunespride')
-    return npsub
+    return reddit, npsub
 
 def get_mc():
     mc = bmemcached.Client(
         os.environ.get('MEMCACHEDCLOUD_SERVERS').split(','),
         os.environ.get('MEMCACHEDCLOUD_USERNAME'),
         os.environ.get('MEMCACHEDCLOUD_PASSWORD'))
+
+    # Adds empty values if cache doesn't exist
+    mc.add(ALREADY_POSTED, ())
+    mc.add(OPEN_THREADS, {})
     return mc
 
 mc = get_mc()
-mc.add(already_posted_key, ())
+reddit, npsub = get_npsub()
 
-# mc.set(already_posted_key, ())
 
-npsub = get_npsub()
+def dummy_test():
+    # insert dummy test data
+    # ensure thread exists
 
-# for f in npsub.flair.link_templates:
-#     print(f)
-# exit(1)
+    test_game = 5326559473565696
+    test_thread = "jg5ks6"
+
+    ap = mc.get(ALREADY_POSTED)
+    ap = ap + (test_game,)
+    ap = mc.set(ALREADY_POSTED, ap)
+
+    ot = mc.get(OPEN_THREADS)
+    ot[test_game] = test_thread
+    ot = mc.set(OPEN_THREADS, ot)
+
 
 def run_bot():
+    "main entry point of the bot"
+
+    # for f in npsub.flair.link_templates:
+    #     print(f)
+    # exit(1)
+    # dummy_test()
+
     post_user_games()
 
 def get_open_games():
     req = requests.post(url, data)
     rdata = req.json()
-    print('rdata.len', len(rdata))
+    print('NP API | rdata len', len(rdata))
     games = rdata[1]
     return games
 
-get_number = lambda g: int(g['number'])
+def get_number(g):
+    return int(g['number'])
+
 def post_user_games():
     games = get_open_games()
-    ugames = games['user_created_games']
-    numbers = map(get_number, ugames)
+    open_user_games = games['user_created_games']
 
-    # already_posted = mc.get(already_posted_key)
-    # REMOVE THIS
-    already_posted = tuple(mc.get(already_posted_key))
+    already_posted = tuple(mc.get(ALREADY_POSTED))
     print('already_posted', already_posted)
 
-    for game in ugames:
+    for game in open_user_games:
         number = int(game['number'])
         if number in already_posted:
             print('Skipping', number, game['name'])
@@ -77,22 +98,48 @@ def post_user_games():
         try: 
             post_open_game_thread(game)
         except praw.exceptions.APIException as e:
+            print('APIException', str(e))
             if not 'ALREADY_SUB' in str(e):
-                print('APIException', str(e))
                 break
 
         already_posted = already_posted + (number,)
-        mc.set(already_posted_key, already_posted)
+        mc.set(ALREADY_POSTED, already_posted)
 
-        # only one per run for testing
-        # avoids rate limit also....
-        # break
+    user_game_numbers = tuple(map(get_number, open_user_games))
+    print('user_game_numbers', user_game_numbers)
 
-    # we want to remove the games which are unlisted
-    already_posted = tuple(set(already_posted) & set(numbers))
-    mc.set(already_posted_key, already_posted)
+    # make newly closed games as CLOSED and delete if they have no comments
+    newly_closed = tuple(set(already_posted) - set(user_game_numbers))
+    print('newly_closed', len(newly_closed))
 
+    for closed_game_number in newly_closed:
+        close_topic_for(closed_game_number)
+
+    # remove the games which are unlisted
+    # from the cache to prevent it growing
+    already_posted = tuple(set(already_posted) & set(user_game_numbers))
+    mc.set(ALREADY_POSTED, already_posted)
+
+    print(ALREADY_POSTED, '=', already_posted)
     print('Done')
+
+def close_topic_for(game_number):
+    print('closing ', game_number)
+
+    sub_ids = mc.get(OPEN_THREADS)
+    sub_id = sub_ids[game_number]
+    print('...     ', sub_id)
+
+    submission = praw.models.Submission(reddit, id=sub_id)
+    submission.mod.flair(flair_template_id=FULL_ID)
+
+    # delete the post if no one has replied to it or up voted it
+    if submission.num_comments == 0 and submission.score <= 1:
+        print('...      deleting')
+        # alternatives: submission.delete()
+        submission.mod.remove()
+
+    mc.set(OPEN_THREADS, sub_ids)
 
 tick_descs = {
     15: 'Quad',
@@ -121,9 +168,6 @@ def post_open_game_thread(game):
 
     turn_jump_ticks = game['config']['turnJumpTicks']
     turn_time = game['config']['turnTime']
-
-    # pprint(game)
-    # exit(1)
 
     tags = []
 
@@ -165,8 +209,13 @@ def post_open_game_thread(game):
         title,
         url=link,
         resubmit=False,
-        flair_id=open_id
+        flair_id=OPEN_ID
         )
+
+    # cache submission so we can easily archive when game closes
+    sub_ids = mc.get(OPEN_THREADS)
+    sub_ids[number] = submission.id
+    mc.set(OPEN_THREADS, sub_ids)
 
     # submission = npsub.submit('Some title', selftext='Some text')
     # submission = npsub.submit(title, url=link, resubmit=False)
