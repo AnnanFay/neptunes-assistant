@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import requests
 import os
 import bmemcached
@@ -72,6 +74,40 @@ def run_bot():
     # dummy_test()
 
     post_user_games()
+
+    # batch_archive_old_threads()
+
+def batch_archive_old_threads():
+
+    # user = reddit.redditor('neptunes-assistant')
+    # submissions = tuple(user.submissions.new())
+
+    submissions = tuple(npsub.search(
+        query="author:neptunes-assistant flair:open",
+        sort='new',
+        limit=1000
+    ))
+
+    print('submissions', len(submissions))
+
+    for sub in submissions:
+        
+        date_posted = datetime.utcfromtimestamp(sub.created_utc)
+        post_age = datetime.now() - date_posted
+        print(sub.title)
+        print('    age     ', post_age.days, 'days')
+        print('    comments', sub.num_comments)
+        print('    score   ', sub.score)
+
+        if post_age.days < 14:
+            continue
+        else:
+            sub.mod.flair(flair_template_id=FULL_ID)
+
+            if sub.num_comments == 0 and sub.score <= 1:
+                print('    REMOVING', sub)
+                sub.mod.remove()
+
 
 def get_open_games():
     req = requests.post(url, data)
