@@ -23,10 +23,12 @@ FULL_ID = "109d87bc-4674-11e8-a30b-0eed8597e7ae"
 def get_npsub():
     username = os.environ["REDDIT_USERNAME"]
     password = os.environ["REDDIT_PASSWORD"]
+    client_id = os.environ["NEPTUNES_ID"]
+    client_secret = os.environ["NEPTUNES_SECRET"]
 
     reddit = praw.Reddit(
-        client_id="**************",
-        client_secret="***************************",
+        client_id=client_id,
+        client_secret=client_secret,
         password=password,
         username=username,
         user_agent="neptunes-assistant bot by /u/AnnanFay",
