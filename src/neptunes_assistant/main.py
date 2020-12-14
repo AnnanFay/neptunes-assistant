@@ -208,7 +208,7 @@ def post_open_game_thread(game):
     # disabled, enabled, dark start
     is_dark = (game["config"]["darkGalaxy"] == 1)
     is_turn_based = (game["turn_based"] == 1)  # 0 or 1
-    is_premium = (game["config"]["playertype"] == 1)
+    is_premium = (game["config"]["playerType"] == 1)
 
     # minutes per tick
     tick_rate = game["config"]["tickRate"]
